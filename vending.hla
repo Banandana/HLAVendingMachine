@@ -42,34 +42,46 @@ static
 	//Creates a new item entry, allocating it on the heap, generating all the
 	//required pieces of info, and appends it to the list. It then returns the
 	//pointer to the newly created item
-	procedure createItemEntry(itemName:string; itemPrice:uns32; itemQuantity:uns32); @returns("eax"); @forward;
+	procedure list_createItem(itemName:string; itemPrice:uns32; itemQuantity:uns32); @returns("eax"); @forward;
 
 	//Look up the item in the list by index
-	procedure getItemEntry(itemIndex:uns32); @returns("eax"); @forward;
+	procedure list_getItem(itemIndex:uns32); @returns("eax"); @forward;
 
 	//List entry accessors
-	procedure getItemName(itemPointer:dword); @returns("eax"); @forward;
-	procedure getItemPrice(itemPointer:dword); @returns("eax"); @forward;
-	procedure getItemQuantity(itemPointer:dword); @returns("eax"); @forward;
+	procedure list_getItemName(itemPointer:dword); @returns("eax"); @forward;
+	procedure list_getItemPrice(itemPointer:dword); @returns("eax"); @forward;
+	procedure list_getItemQuantity(itemPointer:dword); @returns("eax"); @forward;
 
 	//List entry modifier. Register friendly.
-	procedure decrementQuantity(itemPointer:dword); @forward;
+	procedure list_decrementItemQuantity(itemPointer:dword); @forward;
 
 	//Gets the very last item in the list
-	procedure getLastItemEntry; @returns("eax"); @forward;
+	procedure list_getLastItem; @returns("eax"); @forward;
+
+//Input declarations
+	procedure getNumber
+
+//Rendering declarations
+	procedure renderClear; @forward;
+
+	procedure renderLine; @forward;
+
+	procedure renderItem(itemNumber:uns32; itemPointer:dword); @forward;
+
+	procedure renderItems; @forward;
 
 //Money declarations
 
-	procedure addUserCurrency(currencyAmount:uns32); @forward;
-	procedure subtractUserCurrency(currencyAmount:uns32); @forward;
+	procedure currency_addCredit(currencyAmount:uns32); @forward;
+	procedure currency_subtractCredit(currencyAmount:uns32); @forward;
 
 // -------------------------- Procedure Definitions ---------------------------
 
 //List definitions
 
-	procedure createItemEntry(itemName:string; itemPrice:uns32; itemQuantity:uns32);
+	procedure list_createItem(itemName:string; itemPrice:uns32; itemQuantity:uns32);
 		//Destroys eax
-		begin createItemEntry;
+		begin list_createItem;
 			//Save old ebx
 			push(ebx);
 
@@ -80,7 +92,7 @@ static
 			//Now EBX has it
 
 			//Get the pointer of the last entry to EAX
-			call getLastItemEntry;
+			call list_getLastItem;
 
 			//Copy the string to the destination specified in ebx
 			//Offset 0-3
@@ -95,7 +107,7 @@ static
 			//Make sure eax isn't null, never write to invalid memory
 			if (eax != 0) then
 					//Offset 12-15 is a pointer to the next item entry
-					//Note this is the offset of the getLastItemEntry block and not
+					//Note this is the offset of the list_getLastItem block and not
 					//the newly created one
 					mov(ebx, [eax + 12]);
 				else
@@ -117,11 +129,11 @@ static
 			pop(ebx);
 
 			//And we return, leaving the pointer to the new object in eax
-		end createItemEntry;
+		end list_createItem;
 
-	procedure getItemEntry(itemIndex:uns32);
+	procedure list_getItem(itemIndex:uns32);
 		//Destroys eax
-		begin getItemEntry;
+		begin list_getItem;
 			//Move the first item pointer into eax
 			mov(firstItem, eax);
 
@@ -144,31 +156,31 @@ static
 			pop(ebx);
 			pop(ecx);
 
-		end getItemEntry;
+		end list_getItem;
 
-	procedure getItemName(itemPointer:dword);
+	procedure list_getItemName(itemPointer:dword);
 		//Destroys eax
-		begin getItemName;
+		begin list_getItemName;
 			mov(itemPointer, eax);
 			mov([eax], eax);
-		end getItemName;
+		end list_getItemName;
 
-	procedure getItemPrice(itemPointer:dword);
+	procedure list_getItemPrice(itemPointer:dword);
 		//Destroys eax
-		begin getItemPrice;
+		begin list_getItemPrice;
 			mov(itemPointer, eax);
 			mov([eax + 4], eax);
-		end getItemPrice;
+		end list_getItemPrice;
 
-	procedure getItemQuantity(itemPointer:dword);
+	procedure list_getItemQuantity(itemPointer:dword);
 		//Destroys eax
-		begin getItemQuantity;
+		begin list_getItemQuantity;
 			mov(itemPointer, eax);
 			mov([eax + 8], eax);
-		end getItemQuantity;
+		end list_getItemQuantity;
 
-	procedure decrementQuantity(itemPointer:dword);
-		begin decrementQuantity;
+	procedure list_decrementItemQuantity(itemPointer:dword);
+		begin list_decrementItemQuantity;
 			push(eax);
 			push(ebx);
 
@@ -183,11 +195,11 @@ static
 
 			pop(ebx);
 			pop(eax);
-		end decrementQuantity;
+		end list_decrementItemQuantity;
 
-	procedure getLastItemEntry;
+	procedure list_getLastItem;
 		//Destroys eax
-		begin getLastItemEntry;
+		begin list_getLastItem;
 			//Save old ebx
 			push(ebx);
 
@@ -217,31 +229,70 @@ static
 			pop(ebx);
 
 			//EAX now contains the last entry in the linked list
-		end getLastItemEntry;
+		end list_getLastItem;
+
+//Input definitions
+
+//Rendering definitions
+	procedure renderClear;
+		begin renderClear;
+			console.home();
+		end renderClear;
+
+	procedure renderLine;
+		begin renderLine;
+			stdout.put("------------------------------------------------", nl);
+		end renderLine;
+
+	procedure renderItem(itemNumber:uns32; itemPointer:dword);
+		begin renderItem;
+			push(eax);
+
+			mov(itemNumber, eax);
+			if (eax > 0) then
+				stdout.put((type uns32 eax), ". ");
+			endif;
+
+			list_getItemName(itemPointer);
+			stdout.put("Name: ", (type string eax), ", ");
+
+			list_getItemPrice(itemPointer);
+			stdout.put("Price: ", (type uns32 eax), ", ");
+
+			list_getItemQuantity(itemPointer);
+			stdout.put("Quantity: ", (type uns32 eax), " ", nl);
+
+			pop(eax);
+		end renderItem;
+
+	procedure renderItems;
+		begin renderItems;
+		end renderItems;
 
 //Money definitions
+
+	procedure currency_addCredit(currencyAmount:uns32);
+		begin currency_addCredit;
+		end currency_addCredit;
+
+	procedure currency_subtractCredit(currencyAmount:uns32);
+		begin currency_subtractCredit;
+		end currency_subtractCredit;
 
 // --------------------------- Program Entry Point ----------------------------
 
 begin VendingMachine;
-	createItemEntry("Coke", 199, 100);
-	createItemEntry("Diet Coke", 189, 100);
-	createItemEntry("Sprite", 199, 100);
-	createItemEntry("Dr. Pepper", 199, 100);
+	list_createItem("Coke", 199, 100);
+	list_createItem("Diet Coke", 189, 100);
+	list_createItem("Sprite", 199, 100);
+	list_createItem("Dr. Pepper", 199, 100);
 
 	//mov(firstItem, eax);
 	stdout.put(nl);
 
-	getLastItemEntry();
+	list_getLastItem();
 	mov(eax, ebx);
-	stdout.put((type string [eax]), nl);
-	getItemPrice(ebx);
-	stdout.put((type uns32 eax), nl);
-	getItemQuantity(ebx);
-	stdout.put((type uns32 eax), nl);
-	decrementQuantity(ebx);
-	getItemQuantity(ebx);
-	stdout.put((type uns32 eax), nl);
+	renderItem(1, ebx);
 
 
 end VendingMachine;
