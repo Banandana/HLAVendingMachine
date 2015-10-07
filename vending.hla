@@ -1,0 +1,234 @@
+/*
+	HLA Vending Machine (Programming Project 1)
+
+	written by			Casey Hall
+	created on			7 October 2015
+
+	This program is a simple vending machine simulator, allowing the user to buy
+	various items operated on a currency of 'credits'
+
+ */
+
+program VendingMachine;
+
+// --------------------------- List Item Structure ----------------------------
+/*
+	Each element is stored in a 16 byte block in memory
+	struct (16 bytes) {
+		DWORD string pointer (4 bytes)
+		DWORD price (4 bytes)
+		DWORD quantity (4 bytes)
+		DWORD next element pointer (4 bytes)
+	}
+*/
+// --------------------------------- Includes ---------------------------------
+
+#include ("stdlib.hhf");
+#include ("console.hhf");
+
+// ----------------------- Static Variable Declarations -----------------------
+
+static
+	//The first vending machine item pointer in the linked list
+	firstItem: dword;
+	itemCount: uns32;
+
+// --------------------- Procedure Forwards Declarations ----------------------
+
+//Creates a new item entry, allocating it on the heap, generating all the
+//required pieces of info, and appends it to the list. It then returns the
+//pointer to the newly created item
+procedure createItemEntry(itemName:string; itemPrice:uns32; itemQuantity:uns32); @returns("eax"); @forward;
+
+//Look up the item in the list by index
+procedure getItemEntry(itemIndex:uns32); @returns("eax"); @forward;
+
+//List entry accessors
+procedure getItemName(itemPointer:dword); @returns("eax"); @forward;
+procedure getItemPrice(itemPointer:dword); @returns("eax"); @forward;
+procedure getItemQuantity(itemPointer:dword); @returns("eax"); @forward;
+
+//List entry modifier. Register friendly.
+procedure decrementQuantity(itemPointer:dword); @forward;
+
+//Gets the very last item in the list
+procedure getLastItemEntry; @returns("eax"); @forward;
+
+// -------------------------- Procedure Definitions ---------------------------
+
+procedure createItemEntry(itemName:string; itemPrice:uns32; itemQuantity:uns32);
+	//Destroys eax
+	begin createItemEntry;
+		//Save old ebx
+		push(ebx);
+
+		//Allocate 16 bytes
+		mem.zalloc(16);
+		//EAX now contains the pointer to this block
+		mov(eax, ebx);
+		//Now EBX has it
+
+		//Get the pointer of the last entry to EAX
+		call getLastItemEntry;
+
+		//Copy the string to the destination specified in ebx
+		//Offset 0-3
+		mov((type dword itemName), [ebx]);
+
+		//Offset 4-7
+		mov(itemPrice, [ebx + 4]);
+
+		//Offset 8-11
+		mov(itemQuantity, [ebx + 8]);
+
+		//Make sure eax isn't null, never write to invalid memory
+		if (eax != 0) then
+				//Offset 12-15 is a pointer to the next item entry
+				//Note this is the offset of the getLastItemEntry block and not
+				//the newly created one
+				mov(ebx, [eax + 12]);
+			else
+				//LastItemEntry is null, meaning that this is the first item in
+				//the list. Move the new structure's pointer to firstItem
+				mov(ebx, firstItem);
+
+				//Increment itemCount, preserving ecx
+				push(ecx);
+				mov(itemCount, ecx);
+				inc(ecx);
+				mov(ecx, itemCount);
+				pop(ecx);
+		endif;
+		
+		//At this point, ebx contains the pointer to the created object
+		//Move into eax and restore old ebx
+		mov(ebx, eax);
+		pop(ebx);
+
+		//And we return, leaving the pointer to the new object in eax
+	end createItemEntry;
+
+procedure getItemEntry(itemIndex:uns32);
+	//Destroys eax
+	begin getItemEntry;
+		//Move the first item pointer into eax
+		mov(firstItem, eax);
+
+		//Save ecx, ebx
+		push(ecx);
+		push(ebx);
+		
+		for (mov(0, ecx); ecx < itemIndex; inc(ecx)) do
+			//We already have the 0 index pointer
+			if (itemIndex == 0) then
+				break;
+			endif;
+
+			//Read the actual pointer from memory into eax
+			add(12, eax);
+			//Read the value at the new pointer location
+			mov([eax], eax);
+		endfor;
+
+		pop(ebx);
+		pop(ecx);
+
+	end getItemEntry;
+
+procedure getItemName(itemPointer:dword);
+	//Destroys eax
+	begin getItemName;
+		mov(itemPointer, eax);
+		mov([eax], eax);
+	end getItemName;
+
+procedure getItemPrice(itemPointer:dword);
+	//Destroys eax
+	begin getItemPrice;
+		mov(itemPointer, eax);
+		mov([eax + 4], eax);
+	end getItemPrice;
+
+procedure getItemQuantity(itemPointer:dword);
+	//Destroys eax
+	begin getItemQuantity;
+		mov(itemPointer, eax);
+		mov([eax + 8], eax);
+	end getItemQuantity;
+
+procedure decrementQuantity(itemPointer:dword);
+	begin decrementQuantity;
+		push(eax);
+		push(ebx);
+
+		//Move the item pointer to eax
+		mov(itemPointer, eax);
+		//Move the value at offset 8 to ebx
+		mov([eax + 8], ebx);
+		//Decrement ebx
+		dec(ebx);
+		//Move ebx back into eax offset 8
+		mov(ebx, [eax + 8]);
+
+		pop(ebx);
+		pop(eax);
+	end decrementQuantity;
+
+procedure getLastItemEntry;
+	//Destroys eax
+	begin getLastItemEntry;
+		//Save old ebx
+		push(ebx);
+
+		//Move the first item into both eax and ebx
+		mov(firstItem, eax);
+		//Ebx stores the newly read pointer, eax stores the current one
+		mov(firstItem, ebx);
+
+		//Loop until we get the last item
+		forever
+			//If the current pointer we just read is null, we break
+			//If there are no entries, it should be null, so we break
+			//EAX is already set to null, so we just return if there are no
+			//entries and the calling function handles it
+			breakif(ebx == 0);
+
+			//It's not null, move the just read pointer to eax as this is the
+			//valid pointer of the most recent struct
+			mov(ebx, eax);
+
+			//Read offset 12 in memory of the known valid pointer into ebx,
+			//then going to the next loop iteration until we hit null and stop
+			mov([eax + 12], ebx);
+		endfor;
+
+		//Restore old ebx from the stack
+		pop(ebx);
+
+		//EAX now contains the last entry in the linked list
+	end getLastItemEntry;
+
+// --------------------------- Program Entry Point ----------------------------
+
+begin VendingMachine;
+	createItemEntry("Coke", 199, 100);
+	createItemEntry("Diet Coke", 189, 100);
+	createItemEntry("Sprite", 199, 100);
+	createItemEntry("Dr. Pepper", 199, 100);
+
+	//mov(firstItem, eax);
+	stdout.put(nl);
+
+	getLastItemEntry();
+	mov(eax, ebx);
+	stdout.put((type string [eax]), nl);
+	getItemPrice(ebx);
+	stdout.put((type uns32 eax), nl);
+	getItemQuantity(ebx);
+	stdout.put((type uns32 eax), nl);
+	decrementQuantity(ebx);
+	getItemQuantity(ebx);
+	stdout.put((type uns32 eax), nl);
+
+
+end VendingMachine;
