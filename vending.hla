@@ -46,6 +46,8 @@ static
 
 	//Look up the item in the list by index
 	procedure list_getItem(itemIndex:uns32); @returns("eax"); @forward;
+ 
+	procedure list_removeItem(itemIndex:uns32); @forward;
 
 	//List entry accessors
 	procedure list_getItemName(itemPointer:dword); @returns("eax"); @forward;
@@ -59,7 +61,9 @@ static
 	procedure list_getLastItem; @returns("eax"); @forward;
 
 //Input declarations
-	procedure getNumber
+	procedure input_getNumber(promptText:string); @returns("eax"); @forward;
+
+	procedure input_getNumberInRange(promptText:string; min:uns32; max:uns32); @returns("eax"); @forward;
 
 //Rendering declarations
 	procedure renderClear; @forward;
@@ -114,14 +118,14 @@ static
 					//LastItemEntry is null, meaning that this is the first item in
 					//the list. Move the new structure's pointer to firstItem
 					mov(ebx, firstItem);
-
-					//Increment itemCount, preserving ecx
-					push(ecx);
-					mov(itemCount, ecx);
-					inc(ecx);
-					mov(ecx, itemCount);
-					pop(ecx);
 			endif;
+
+			//Increment itemCount, preserving ecx
+			push(ecx);
+			mov(itemCount, ecx);
+			inc(ecx);
+			mov(ecx, itemCount);
+			pop(ecx);
 			
 			//At this point, ebx contains the pointer to the created object
 			//Move into eax and restore old ebx
@@ -157,6 +161,71 @@ static
 			pop(ecx);
 
 		end list_getItem;
+
+	procedure list_removeItem(itemIndex:uns32);
+		begin list_removeItem;
+			push(eax);
+			push(ebx);
+			push(ecx);
+			push(edx);
+			push(ebp);
+			
+			mov(itemIndex, eax);
+			//Because the list is zero indexed, decrease the itemcount to get the
+			//index of the last item in the list
+			mov(itemCount, ebx);
+			dec(ebx);
+
+			if (eax > 0 && eax < ebx) then
+				//Normal removal
+
+				//get the index of the item before
+				dec(eax);
+
+				//eax is now the pointer to the item before
+				list_getItem(eax);
+
+				//Offset the pointer of the item before by 12
+				//eax is then the address of the pointer of the target object
+				add(12, eax);
+
+				//Move that to ebx
+				//move a copy of the address of the pointer to be updated on the previous object
+				//to ebx
+				mov(eax, ebx);
+
+				//eax is dereferenced and is now a pointer to the item to be removed
+				mov([eax], eax);
+				//Read offset 12 of the item to be removed
+				add(12, eax);
+				//Dereference the pointer in the object to be removed and store that in edx
+				//edx contains the trailing object address
+				mov([eax], edx);
+
+				//Dereference the address of the pointer to be updated (containing a pointer to the
+				//target object) and pass that to get freed from memory
+				mem.free([ebx]);
+
+				mov(edx, [ebx]);
+				//write the trailing object address to the location of the pointer to be updated
+
+				mov(itemCount, eax);
+				dec(eax);
+				mov(eax, itemCount);
+
+			elseif (eax == 0) then
+				//First item intended for removal
+			else
+				//Last item intended for removal
+
+			endif;
+
+			pop(ebp);
+			pop(edx);
+			pop(ecx);
+			pop(ebx);
+			pop(eax);
+		end list_removeItem;
 
 	procedure list_getItemName(itemPointer:dword);
 		//Destroys eax
@@ -232,6 +301,44 @@ static
 		end list_getLastItem;
 
 //Input definitions
+	procedure input_getNumber(promptText:string);
+		//Destroys eax
+		begin input_getNumber;
+			forever
+				try
+					//Flush input and get number
+					stdin.flushInput();
+
+					//Output the prompt
+					
+					mov(promptText, eax);
+					if (eax != 0) then
+						stdout.put(promptText);
+					endif;
+
+					stdin.getu32();
+					
+					unprotected
+						break;
+				anyexception
+					stdout.put("You have entered an invalid number. Please try again.", nl);
+				endtry;
+			endfor;
+		end input_getNumber;
+
+	procedure input_getNumberInRange(promptText:string; min:uns32; max:uns32);
+		begin input_getNumberInRange;
+			forever
+				input_getNumber(promptText);
+
+				if (eax > max || eax < min) then
+					stdout.put("You have entered a number out of range. (", min, "-", max, ")", nl);
+				else
+					break;
+				endif;
+
+			endfor;
+		end input_getNumberInRange;
 
 //Rendering definitions
 	procedure renderClear;
@@ -267,6 +374,20 @@ static
 
 	procedure renderItems;
 		begin renderItems;
+			push(eax);
+			push(ebx);
+			push(ecx);
+
+			//Loop through all items
+			for (mov(0, ecx); ecx < itemCount; inc(ecx)) do
+				//Get the list item at index of ecx
+				list_getItem(ecx);
+				renderItem(0, eax);
+			endfor;
+
+			pop(ecx);
+			pop(ebx);
+			pop(eax);
 		end renderItems;
 
 //Money definitions
@@ -287,12 +408,12 @@ begin VendingMachine;
 	list_createItem("Sprite", 199, 100);
 	list_createItem("Dr. Pepper", 199, 100);
 
-	//mov(firstItem, eax);
-	stdout.put(nl);
+	renderItems();
 
-	list_getLastItem();
-	mov(eax, ebx);
-	renderItem(1, ebx);
+	list_removeItem(1);
 
+	stdout.put(nl, nl);
+
+	renderItems();
 
 end VendingMachine;
