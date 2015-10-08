@@ -71,11 +71,16 @@ static
 
 	//Look up the item in the list by index
 	procedure list_getItem(listPointer:dword; itemIndex:uns32); @returns("eax"); @forward;
+	//Gets an item by comparing the name. Used mainly for receipt functionality
+	//to prevent duplicates from being created
+	procedure list_getItemByName(listPointer:dword; itemName:string); @returns("eax"); @forward;
 
-	//List entry accessors
+	//List entry accessors. Name should never change
 	procedure list_getItemName(itemPointer:dword); @returns("eax"); @forward;
 	procedure list_getItemPrice(itemPointer:dword); @returns("eax"); @forward;
+	procedure list_setItemPrice(itemPointer:dword; itemPrice:uns32); @forward;
 	procedure list_getItemQuantity(itemPointer:dword); @returns("eax"); @forward;
+	procedure list_setItemQuantity(itemPointer:dword; itemQuantity:uns32); @forward;
 
 	//List entry modifier. Register friendly.
 	procedure list_decrementItemQuantity(itemPointer:dword); @forward;
@@ -114,9 +119,11 @@ static
 	procedure list_deleteList(listPointer:dword);
 		begin list_deleteList;
 			push(eax);
+			push(ebx);
 
 			mov(listPointer, eax);
-			if (eax != 0) then
+			mov([eax], ebx);
+			if (ebx != 0) then
 				//Only try to delete items if the list isn't null
 
 				//Offset the list pointer by 4 getting the first element pointer
@@ -126,6 +133,7 @@ static
 			
 			mem.free(listPointer);
 
+			pop(ebx);
 			pop(eax);
 		end list_deleteList;
 
@@ -248,7 +256,12 @@ static
 			//Write the new object out
 
 			//Offset 0-3
-			mov((type dword itemName), [eax]);
+			mov(eax, ebx);
+			stralloc(256);
+			str.cpy(itemName, eax);
+			mov(eax, [ebx]);
+
+			mov(ebx, eax);
 
 			//Offset 4-7
 			mov(itemPrice, [eax + 4]);
@@ -293,29 +306,98 @@ static
 
 			pop(ebx);
 			pop(ecx);
-
 		end list_getItem;
+
+	procedure list_getItemByName(listPointer:dword; itemName:string);
+		begin list_getItemByName;
+			//Save ecx, ebx
+			push(ebx);
+			push(ecx);
+			push(edx);
+
+			//Get the length and push that to edx
+			list_getLength(listPointer);
+			mov(eax, edx);
+
+			//Move the first item pointer into eax
+			list_getFirstItem(listPointer);
+
+			//Looping like this is inefficient but this isn't needing to be
+			//performant
+			for (mov(0, ecx); ecx < edx; inc(ecx)) do
+				//Get the item into eax
+				list_getItem(listPointer, ecx);
+
+				//Save a copy to ebx
+				mov(eax, ebx);
+
+				//Get the name
+				list_getItemName(eax);
+				stdout.put(nl, (type string eax), " =? ");
+				stdout.put(itemName);
+				str.eq((type string eax), itemName);
+				breakif(al = true);//FIX STRING COMPARISON
+			endfor;
+
+			//If eax is 1 we got a match
+			if (al = 1) then
+				//Copy the last item we had focused to eax
+				mov(ebx, eax);
+			else
+				//Otherwise set it to null
+				mov(0, eax);
+			endif;
+
+			pop(edx);
+			pop(ecx);
+			pop(ebx);
+		end list_getItemByName;
 
 	procedure list_getItemName(itemPointer:dword);
 		//Destroys eax
 		begin list_getItemName;
 			mov(itemPointer, eax);
-			mov([eax], eax);
+			if (eax != 0) then
+				mov([eax], eax);
+			endif;
+			
 		end list_getItemName;
 
 	procedure list_getItemPrice(itemPointer:dword);
 		//Destroys eax
 		begin list_getItemPrice;
 			mov(itemPointer, eax);
-			mov([eax + 4], eax);
+			if (eax != 0) then
+				mov([eax + 4], eax);
+			endif;
 		end list_getItemPrice;
+
+	procedure list_setItemPrice(itemPointer:dword; itemPrice:uns32);
+		begin list_setItemPrice;
+			mov(itemPointer, eax);
+			if (eax != 0) then
+				mov(itemPrice, [eax + 4]);
+			endif;
+		end list_setItemPrice;
 
 	procedure list_getItemQuantity(itemPointer:dword);
 		//Destroys eax
 		begin list_getItemQuantity;
 			mov(itemPointer, eax);
-			mov([eax + 8], eax);
+			if (eax != 0) then
+				mov([eax + 8], eax);
+			endif;
 		end list_getItemQuantity;
+
+	procedure list_setItemQuantity(itemPointer:dword; itemQuantity:uns32);
+		begin list_setItemQuantity;
+			push(eax);
+			mov(itemPointer, eax);
+			if (eax != 0) then
+				mov(itemQuantity, [eax + 8]);
+			endif;
+			pop(eax);
+		end list_setItemQuantity;
 
 	procedure list_decrementItemQuantity(itemPointer:dword);
 		begin list_decrementItemQuantity;
@@ -459,18 +541,42 @@ static
 		begin currency_subtractCredit;
 		end currency_subtractCredit;
 
-// --------------------------- Program Entry Point ----------------------------
+// -------------------------- Main Program Functions --------------------------
+
+procedure vending_initialize;
+	begin vending_initialize;
+		//Initialize the product list
+		list_createList();
+		mov(eax, productList);
+
+		//Initialize the receipt list
+		list_createList();
+		mov(eax, receiptList);
+
+		//Populate the product list with presets
+		list_createItem(productList, "Coke", 199, 100);
+		list_createItem(productList, "Diet Coke", 189, 100);
+		list_createItem(productList, "Sprite", 199, 100);
+		list_createItem(productList, "Dr. Pepper", 199, 100);
+	end vending_initialize;
+
+procedure vending_destroy;
+	begin vending_destroy;
+		list_deleteList(productList);
+		list_deleteList(receiptList);
+	end vending_destroy;
 
 begin VendingMachine;
-	list_createList();
-	mov(eax, productList);
-	list_createItem(productList, "Coke", 199, 100);
-	list_createItem(productList, "Diet Coke", 189, 100);
-	list_createItem(productList, "Sprite", 199, 100);
-	list_createItem(productList, "Dr. Pepper", 199, 100);
+	//Initialize the variables and lists
+	vending_initialize();
 
 	renderItems(productList);
 
-	list_deleteList(productList);
+	stdout.put(nl);
 
+	list_getItemByName(productList, "Sprite");
+	stdout.put(eax);
+
+	//Free memory by destroying the variables and lists
+	vending_destroy();
 end VendingMachine;
