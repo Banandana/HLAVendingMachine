@@ -11,6 +11,15 @@
 
 program VendingMachine;
 
+// ------------------------------ List Structure ------------------------------
+/*
+	The list is stored in an 8 byte block in memory.
+	struct (8 bytes) {
+		DWORD length (4 bytes) [0]
+		DWORD first element pointer (4 bytes) [4]
+	}
+*/
+
 // --------------------------- List Item Structure ----------------------------
 /*
 	Each element is stored in a 16 byte block in memory
@@ -30,24 +39,38 @@ program VendingMachine;
 // ----------------------- Static Variable Declarations -----------------------
 
 static
-	//The first vending machine item pointer in the linked list
-	firstItem: dword;
-	itemCount: uns32;
+	//The vending machine product list
+	productList: dword;
+	//The receipt entries list
+	receiptList: dword;
 	userWallet: uns32;
 
 // --------------------- Procedure Forwards Declarations ----------------------
 
 //List declarations
 
+	//Allocates the list on the heap
+	procedure list_createList; @returns("eax"); @forward;
+	//Deletes the list, cleaning up all list elements
+	procedure list_deleteList(listPointer:dword); @forward;
+	//Used by list_deleteList only
+	procedure list_recursiveDeleteItems(itemPointer:dword); @forward;
+	//Gets the number of elements in the list
+	procedure list_getLength(listPointer:dword); @returns("eax"); @forward;
+	//Gets the pointer of the first item from the listPointer
+	procedure list_getFirstItem(listPointer:dword); @returns("eax"); @forward;
+	//Gets the very last item in the list (iterates the list)
+	procedure list_getLastItem(listPointer:dword); @returns("eax"); @forward;
+	//Gets the last existing pointer that needs to be written to if a new list
+	//item is to be created
+	procedure list_getLastPointer(listPointer:dword); @returns("eax"); @forward;
 	//Creates a new item entry, allocating it on the heap, generating all the
 	//required pieces of info, and appends it to the list. It then returns the
 	//pointer to the newly created item
-	procedure list_createItem(itemName:string; itemPrice:uns32; itemQuantity:uns32); @returns("eax"); @forward;
+	procedure list_createItem(listPointer:dword; itemName:string; itemPrice:uns32; itemQuantity:uns32); @returns("eax"); @forward;
 
 	//Look up the item in the list by index
-	procedure list_getItem(itemIndex:uns32); @returns("eax"); @forward;
- 
-	procedure list_removeItem(itemIndex:uns32); @forward;
+	procedure list_getItem(listPointer:dword; itemIndex:uns32); @returns("eax"); @forward;
 
 	//List entry accessors
 	procedure list_getItemName(itemPointer:dword); @returns("eax"); @forward;
@@ -56,9 +79,7 @@ static
 
 	//List entry modifier. Register friendly.
 	procedure list_decrementItemQuantity(itemPointer:dword); @forward;
-
-	//Gets the very last item in the list
-	procedure list_getLastItem; @returns("eax"); @forward;
+	procedure list_incrementItemQuantity(itemPointer:dword); @forward;
 
 //Input declarations
 	procedure input_getNumber(promptText:string); @returns("eax"); @forward;
@@ -72,7 +93,7 @@ static
 
 	procedure renderItem(itemNumber:uns32; itemPointer:dword); @forward;
 
-	procedure renderItems; @forward;
+	procedure renderItems(listPointer:dword); @forward;
 
 //Money declarations
 
@@ -83,63 +104,176 @@ static
 
 //List definitions
 
-	procedure list_createItem(itemName:string; itemPrice:uns32; itemQuantity:uns32);
+	procedure list_createList;
+		begin list_createList;
+			//Create a qword on the heap
+			//It's already zeroed out
+			mem.zalloc(8);
+		end list_createList;
+
+	procedure list_deleteList(listPointer:dword);
+		begin list_deleteList;
+			push(eax);
+
+			mov(listPointer, eax);
+			if (eax != 0) then
+				//Only try to delete items if the list isn't null
+
+				//Offset the list pointer by 4 getting the first element pointer
+				mov([eax + 4], eax);
+				list_recursiveDeleteItems(eax);
+			endif;
+			
+			mem.free(listPointer);
+
+			pop(eax);
+		end list_deleteList;
+
+	procedure list_recursiveDeleteItems(itemPointer:dword);
+		begin list_recursiveDeleteItems;
+			push(eax);
+			push(ebx);
+
+			//Move the item pointer into eax and ebx
+			mov(itemPointer, eax);
+			mov(eax, ebx);
+			//Offset 12 of the structure, next pointer's pointer stored in ebx
+			add(12, ebx);
+			//Dereference it because we're pointing to a pointer
+			mov([ebx], ebx);
+			//ebx then is the address to the next element
+			//If the given item isn't null, call delete on the item it points
+			//to, then delete it.
+			if (ebx != 0) then
+				list_recursiveDeleteItems(ebx);
+			endif;
+
+			//Delete this object
+			mem.free(eax);
+
+			pop(ebx);
+			pop(eax);
+		end list_recursiveDeleteItems;
+
+	procedure list_getLength(listPointer:dword);
+		begin list_getLength;
+			//Grab a dword from the pointer location offset 0
+			mov(listPointer, eax);
+			mov([eax], eax);
+		end list_getLength;
+
+	procedure list_getFirstItem(listPointer:dword);
+		begin list_getFirstItem;
+			//Grab a dword from the pointer location offset 4
+			mov(listPointer, eax);
+			mov([eax + 4], eax);
+		end list_getFirstItem;
+
+	procedure list_getLastItem(listPointer:dword);
 		//Destroys eax
-		begin list_createItem;
+		begin list_getLastItem;
 			//Save old ebx
 			push(ebx);
 
-			//Allocate 16 bytes
-			mem.zalloc(16);
-			//EAX now contains the pointer to this block
+			//Move the first item into both eax and ebx
+			list_getFirstItem(listPointer);
+			//Ebx stores the newly read pointer, eax stores the current one
 			mov(eax, ebx);
-			//Now EBX has it
 
-			//Get the pointer of the last entry to EAX
-			call list_getLastItem;
+			//Loop until we get the last item
+			forever
+				//If the current pointer we just read is null, we break
+				//If there are no entries, it should be null, so we break
+				//EAX is already set to null, so we just return if there are no
+				//entries and the calling function handles it
+				breakif(ebx == 0);
 
-			//Copy the string to the destination specified in ebx
+				//It's not null, move the just read pointer to eax as this is the
+				//valid pointer of the most recent struct
+				mov(ebx, eax);
+
+				//Read offset 12 in memory of the known valid pointer into ebx,
+				//then going to the next loop iteration until we hit null and stop
+				mov([eax + 12], ebx);
+			endfor;
+
+			//Restore old ebx from the stack
+			pop(ebx);
+
+			//EAX now contains the last entry in the linked list
+		end list_getLastItem;
+
+	procedure list_getLastPointer(listPointer:dword);
+		begin list_getLastPointer;
+			//Put the last item in eax
+			list_getLastItem(listPointer);
+			//Add 12 to get that object's 'next' pointer address if the object
+			//exists. If it's 0 then just return the address to the list's first
+			//object pointer because it's the first object to be created
+			if (eax != 0) then
+				add(12, eax);
+			else
+				//Put the list pointer back into eax
+				mov(listPointer, eax);
+				//And return offset 4 of that, being the pointer to the first
+				//object
+				add(4, eax);
+			endif;
+				
+			//And that's all there is.
+		end list_getLastPointer;
+
+	procedure list_createItem(listPointer:dword; itemName:string; itemPrice:uns32; itemQuantity:uns32);
+		//Destroys eax
+		begin list_createItem;
+			//Save old ebx, ecx
+			push(ebx);
+			push(ecx);
+
+			//Put the next pointer to be written in eax. If there are no new
+			//objects, it returns the address of the base object's first item
+			//pointer
+			list_getLastPointer(listPointer);
+
+			//move that to ecx
+			mov(eax, ecx);
+
+			//Allocate 16 bytes for the list item
+			mem.zalloc(16);
+
+			//Write the address (in eax) of the new list item into the location
+			//specified by ecx (the next pointer to be written)
+			mov(eax, [ecx]);
+
+			//Write the new object out
+
 			//Offset 0-3
-			mov((type dword itemName), [ebx]);
+			mov((type dword itemName), [eax]);
 
 			//Offset 4-7
-			mov(itemPrice, [ebx + 4]);
+			mov(itemPrice, [eax + 4]);
 
 			//Offset 8-11
-			mov(itemQuantity, [ebx + 8]);
+			mov(itemQuantity, [eax + 8]);
 
-			//Make sure eax isn't null, never write to invalid memory
-			if (eax != 0) then
-					//Offset 12-15 is a pointer to the next item entry
-					//Note this is the offset of the list_getLastItem block and not
-					//the newly created one
-					mov(ebx, [eax + 12]);
-				else
-					//LastItemEntry is null, meaning that this is the first item in
-					//the list. Move the new structure's pointer to firstItem
-					mov(ebx, firstItem);
-			endif;
-
-			//Increment itemCount, preserving ecx
-			push(ecx);
-			mov(itemCount, ecx);
+			//Increment the list counter
+			//also overwriting/recycling ebx and ecx
+			mov(listPointer, ebx);
+			mov([ebx], ecx);
 			inc(ecx);
-			mov(ecx, itemCount);
+			mov(ecx, [ebx]);
+
 			pop(ecx);
-			
-			//At this point, ebx contains the pointer to the created object
-			//Move into eax and restore old ebx
-			mov(ebx, eax);
 			pop(ebx);
 
 			//And we return, leaving the pointer to the new object in eax
 		end list_createItem;
 
-	procedure list_getItem(itemIndex:uns32);
+	procedure list_getItem(listPointer:dword; itemIndex:uns32);
 		//Destroys eax
 		begin list_getItem;
 			//Move the first item pointer into eax
-			mov(firstItem, eax);
+			list_getFirstItem(listPointer);
 
 			//Save ecx, ebx
 			push(ecx);
@@ -161,71 +295,6 @@ static
 			pop(ecx);
 
 		end list_getItem;
-
-	procedure list_removeItem(itemIndex:uns32);
-		begin list_removeItem;
-			push(eax);
-			push(ebx);
-			push(ecx);
-			push(edx);
-			push(ebp);
-			
-			mov(itemIndex, eax);
-			//Because the list is zero indexed, decrease the itemcount to get the
-			//index of the last item in the list
-			mov(itemCount, ebx);
-			dec(ebx);
-
-			if (eax > 0 && eax < ebx) then
-				//Normal removal
-
-				//get the index of the item before
-				dec(eax);
-
-				//eax is now the pointer to the item before
-				list_getItem(eax);
-
-				//Offset the pointer of the item before by 12
-				//eax is then the address of the pointer of the target object
-				add(12, eax);
-
-				//Move that to ebx
-				//move a copy of the address of the pointer to be updated on the previous object
-				//to ebx
-				mov(eax, ebx);
-
-				//eax is dereferenced and is now a pointer to the item to be removed
-				mov([eax], eax);
-				//Read offset 12 of the item to be removed
-				add(12, eax);
-				//Dereference the pointer in the object to be removed and store that in edx
-				//edx contains the trailing object address
-				mov([eax], edx);
-
-				//Dereference the address of the pointer to be updated (containing a pointer to the
-				//target object) and pass that to get freed from memory
-				mem.free([ebx]);
-
-				mov(edx, [ebx]);
-				//write the trailing object address to the location of the pointer to be updated
-
-				mov(itemCount, eax);
-				dec(eax);
-				mov(eax, itemCount);
-
-			elseif (eax == 0) then
-				//First item intended for removal
-			else
-				//Last item intended for removal
-
-			endif;
-
-			pop(ebp);
-			pop(edx);
-			pop(ecx);
-			pop(ebx);
-			pop(eax);
-		end list_removeItem;
 
 	procedure list_getItemName(itemPointer:dword);
 		//Destroys eax
@@ -266,39 +335,23 @@ static
 			pop(eax);
 		end list_decrementItemQuantity;
 
-	procedure list_getLastItem;
-		//Destroys eax
-		begin list_getLastItem;
-			//Save old ebx
+	procedure list_incrementItemQuantity(itemPointer:dword);
+		begin list_incrementItemQuantity;
+			push(eax);
 			push(ebx);
 
-			//Move the first item into both eax and ebx
-			mov(firstItem, eax);
-			//Ebx stores the newly read pointer, eax stores the current one
-			mov(firstItem, ebx);
+			//Move the item pointer to eax
+			mov(itemPointer, eax);
+			//Move the value at offset 8 to ebx
+			mov([eax + 8], ebx);
+			//Increment ebx
+			inc(ebx);
+			//Move ebx back into eax offset 8
+			mov(ebx, [eax + 8]);
 
-			//Loop until we get the last item
-			forever
-				//If the current pointer we just read is null, we break
-				//If there are no entries, it should be null, so we break
-				//EAX is already set to null, so we just return if there are no
-				//entries and the calling function handles it
-				breakif(ebx == 0);
-
-				//It's not null, move the just read pointer to eax as this is the
-				//valid pointer of the most recent struct
-				mov(ebx, eax);
-
-				//Read offset 12 in memory of the known valid pointer into ebx,
-				//then going to the next loop iteration until we hit null and stop
-				mov([eax + 12], ebx);
-			endfor;
-
-			//Restore old ebx from the stack
 			pop(ebx);
-
-			//EAX now contains the last entry in the linked list
-		end list_getLastItem;
+			pop(eax);
+		end list_incrementItemQuantity;
 
 //Input definitions
 	procedure input_getNumber(promptText:string);
@@ -372,19 +425,25 @@ static
 			pop(eax);
 		end renderItem;
 
-	procedure renderItems;
+	procedure renderItems(listPointer:dword);
 		begin renderItems;
 			push(eax);
 			push(ebx);
 			push(ecx);
+			push(edx);
+
+			//Put the length in edx
+			list_getLength(listPointer);
+			mov(eax, edx);
 
 			//Loop through all items
-			for (mov(0, ecx); ecx < itemCount; inc(ecx)) do
+			for (mov(0, ecx); ecx < edx; inc(ecx)) do
 				//Get the list item at index of ecx
-				list_getItem(ecx);
+				list_getItem(listPointer, ecx);
 				renderItem(0, eax);
 			endfor;
 
+			pop(edx);
 			pop(ecx);
 			pop(ebx);
 			pop(eax);
@@ -403,17 +462,15 @@ static
 // --------------------------- Program Entry Point ----------------------------
 
 begin VendingMachine;
-	list_createItem("Coke", 199, 100);
-	list_createItem("Diet Coke", 189, 100);
-	list_createItem("Sprite", 199, 100);
-	list_createItem("Dr. Pepper", 199, 100);
+	list_createList();
+	mov(eax, productList);
+	list_createItem(productList, "Coke", 199, 100);
+	list_createItem(productList, "Diet Coke", 189, 100);
+	list_createItem(productList, "Sprite", 199, 100);
+	list_createItem(productList, "Dr. Pepper", 199, 100);
 
-	renderItems();
+	renderItems(productList);
 
-	list_removeItem(1);
-
-	stdout.put(nl, nl);
-
-	renderItems();
+	list_deleteList(productList);
 
 end VendingMachine;
