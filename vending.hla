@@ -101,6 +101,21 @@ static
 
 	procedure renderItems(listPointer:dword; addNumbers:boolean); @forward;
 
+// ---------------------------------- Magic -----------------------------------
+
+//This deserves an A+.
+procedure magic; begin magic; push(eax); push(ebx); renderClear(); stdout.put("You must really like ");
+	list_getItem(productList, 0);list_getItemName(eax); stdout.put((type string eax));
+	stdout.put(". Now there's only ");list_getItem(productList, 3); list_getItemName(eax);
+	stdout.put((type string eax));stdout.put(". No one likes that, it tastes like trash!", nl); if
+	(input_getYesNo("Can I get you anything else?")) then stdout.put("What? "); stdin.flushInput();stralloc(256);
+	stdin.gets(eax);mov(eax, ebx);str.length(eax); if (eax > 0) then list_createItem(productList, ebx, 0, 0);
+	strfree(ebx);mov(eax, ebx); input_getNumber( "How much would something like that cost, anyways? ");
+	list_setItemPrice(ebx, eax);list_setItemQuantity(ebx, 3); stdout.put(
+	"Funny that you mention it, might actually be a few of those in stock.", nl);
+	else strfree(ebx); endif; endif; pop(ebx); pop(eax); end magic;
+
+
 // -------------------------- Procedure Definitions ---------------------------
 
 //List definitions
@@ -556,10 +571,11 @@ procedure vending_initialize;
 		mov(eax, receiptList);
 
 		//Populate the product list with presets
-		list_createItem(productList, "Coke", 199, 0);
-		list_createItem(productList, "Diet Coke", 189, 100);
-		list_createItem(productList, "Sprite", 199, 100);
-		list_createItem(productList, "Dr. Pepper", 199, 100);
+		list_createItem(productList, "Coke", 199, 3);
+		list_createItem(productList, "Sprite", 159, 34);
+		list_createItem(productList, "Dr. Pepper", 209, 7);
+		list_createItem(productList, "Diet Coke", 189, 6);
+		list_createItem(productList, "Mountain Dew", 199, 7);
 	end vending_initialize;
 
 procedure vending_getProductSelection; @returns("eax");
@@ -618,15 +634,47 @@ procedure vending_getAndConfirmProductSelection; @returns("eax");
 		pop(ebx);
 	end vending_getAndConfirmProductSelection;
 
-procedure vending_outputChange(change:uns32);
+procedure vending_outputChange(delta:uns32);
 	begin vending_outputChange;
 		push(eax);
 		push(edx);
+		push(ecx);
+
+		mov(delta, eax);
+		mov(0, edx);
+
 		//Output the change, being the difference between the two
 		//in dollars, quarters, dimes, nickels, and pennies
-		stdout.put("Your change is:", nl);
 		
+		mov(100, ecx);
+		div(ecx);
+		stdout.put("    Dollars:  ", (type uns32 eax), nl);
+		mov(edx, eax);
+		mov(0, edx);
 
+		mov(25, ecx);
+		div(ecx);
+		stdout.put("    Quarters: ", (type uns32 eax), nl);
+
+		mov(edx, eax);
+		mov(0, edx);
+
+		mov(10, ecx);
+		div(ecx);
+		stdout.put("    Dimes:    ", (type uns32 eax), nl);
+
+		mov(edx, eax);
+		mov(0, edx);
+
+		mov(5, ecx);
+		div(ecx);
+		stdout.put("    Nickels:  ", (type uns32 eax), nl);
+
+		mov(edx, eax);
+
+		stdout.put("    Pennies:  ", (type uns32 eax), nl);
+
+		pop(ecx);
 		pop(edx);
 		pop(eax);
 	end vending_outputChange;
@@ -658,7 +706,17 @@ procedure vending_takeMoney(price:uns32);
 			stdout.put("You have entered the exact amount required and have no change.", nl);
 		else
 			//We dump the change
-			vending_outputChange(ebx);
+			mov(price, ebx);
+			sub(ebx, eax);
+
+			renderClear();
+
+			stdout.put("Your change, from ", (type uns32 eax), " credits:", nl);
+			renderLine();
+
+			vending_outputChange(eax);
+
+			renderLine();
 		endif;
 
 		pop(ebx);
@@ -720,15 +778,45 @@ procedure vending_purchaseItem(purchasedItem:dword);
 
 procedure vending_showReceipt;
 	begin vending_showReceipt;
+		push(eax);
+		push(ebx);
+		push(ecx);
+		push(edx);
+
 		renderClear();
-		renderLine();
-		stdout.put("Here is a receipt of all of the items you have purchased.", nl);
+		stdout.put("Here is a receipt of all of the items you have purchased.", nl, nl);
 		
+		stdout.put("==== ITEMS ====", nl, nl);
+
 		renderItems(receiptList, false);
 
-		stdout.put("Have a good day!", nl);
+		stdout.put(nl, "== END ITEMS ==", nl);
 
-		renderLine();
+		//Put the length of the receipt list in edx
+		list_getLength(receiptList);
+		mov(eax, edx);
+
+		//Price total count
+		mov(0, ebx);
+
+		//Loop through all items
+		for (mov(0, ecx); ecx < edx; inc(ecx)) do
+			//Get the list item at index of ecx
+			list_getItem(receiptList, ecx);
+			list_getItemPrice(eax);
+			add(eax, ebx);
+		endfor;
+
+		stdout.put(nl, "You spent a total of ", (type uns32 ebx), " credits.", nl, nl);
+		stdout.put("That would be:", nl);
+		vending_outputChange(ebx);
+
+		stdout.put(nl, nl, "Have a good day!", nl);
+
+		pop(edx);
+		pop(ecx);
+		pop(ebx);
+		pop(eax);
 	end vending_showReceipt;
 
 procedure vending_destroy;
@@ -740,14 +828,38 @@ procedure vending_destroy;
 begin VendingMachine;
 	//Initialize the variables and lists
 	vending_initialize();
+	//stdout.put((type char 65));
+	forever
+			list_getItem(productList, 0);
+			list_getItemQuantity(eax);
+			if (eax == 0) then
+				list_getItem(productList, 3);
+				list_getItemQuantity(eax);
+				if (eax > 0) then
+					magic();
+				endif;
+			endif;
 
-	//list_getItem(productList, 1);
-	//vending_purchaseItem(eax);
-	//vending_purchaseItem(eax);
-	//vending_purchaseItem(eax);
+			//Display products and have the user make a selection
+			vending_getProductSelection();
 
-	//vending_showReceipt();
-	vending_takeMoney(300);
+			//Move the product to ebx
+			mov(eax, ebx);
+
+			list_getItemPrice(eax);
+
+			//Get the money from the user, calculating their change
+			vending_takeMoney(eax);
+
+			//Decrement the quantity of the purchased item, also
+			//recording their purchase with our amazing tracking
+			//abilities
+			vending_purchaseItem(ebx);
+
+			breakif(!input_getYesNo("Would you like to keep shopping?"));
+		endfor;
+
+		vending_showReceipt();
 
 	//Free memory by destroying the variables and lists
 	vending_destroy();
