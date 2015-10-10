@@ -104,7 +104,9 @@ static
 // ---------------------------------- Magic -----------------------------------
 
 //This deserves an A+.
-procedure magic; begin magic; push(eax); push(ebx); renderClear(); stdout.put("You must really like ");
+procedure magic; begin magic; list_getItem(productList, 0);list_getItemQuantity(eax);if (eax == 0) then
+	list_getItem(productList, 3);list_getItemQuantity(eax); if (eax > 0) then
+	push(eax); push(ebx); renderClear(); stdout.put("You must really like ");
 	list_getItem(productList, 0);list_getItemName(eax); stdout.put((type string eax));
 	stdout.put(". Now there's only ");list_getItem(productList, 3); list_getItemName(eax);
 	stdout.put((type string eax));stdout.put(". No one likes that, it tastes like trash!", nl); if
@@ -113,7 +115,7 @@ procedure magic; begin magic; push(eax); push(ebx); renderClear(); stdout.put("Y
 	strfree(ebx);mov(eax, ebx); input_getNumber( "How much would something like that cost, anyways? ");
 	list_setItemPrice(ebx, eax);list_setItemQuantity(ebx, 3); stdout.put(
 	"Funny that you mention it, might actually be a few of those in stock.", nl);
-	else strfree(ebx); endif; endif; pop(ebx); pop(eax); end magic;
+	else strfree(ebx); endif; endif; pop(ebx); pop(eax);endif;endif; end magic;
 
 
 // -------------------------- Procedure Definitions ---------------------------
@@ -830,15 +832,8 @@ begin VendingMachine;
 	vending_initialize();
 	//stdout.put((type char 65));
 	forever
-			list_getItem(productList, 0);
-			list_getItemQuantity(eax);
-			if (eax == 0) then
-				list_getItem(productList, 3);
-				list_getItemQuantity(eax);
-				if (eax > 0) then
-					magic();
-				endif;
-			endif;
+			//Let the magic happen.
+			magic();
 
 			//Display products and have the user make a selection
 			vending_getProductSelection();
