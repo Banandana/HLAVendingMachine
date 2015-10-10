@@ -43,7 +43,6 @@ static
 	productList: dword;
 	//The receipt entries list
 	receiptList: dword;
-	userWallet: uns32;
 
 // --------------------- Procedure Forwards Declarations ----------------------
 
@@ -87,6 +86,8 @@ static
 	procedure list_incrementItemQuantity(itemPointer:dword); @forward;
 
 //Input declarations
+	procedure input_getYesNo(promptText:string); @returns("al"); @forward;
+
 	procedure input_getNumber(promptText:string); @returns("eax"); @forward;
 
 	procedure input_getNumberInRange(promptText:string; min:uns32; max:uns32); @returns("eax"); @forward;
@@ -96,14 +97,9 @@ static
 
 	procedure renderLine; @forward;
 
-	procedure renderItem(itemNumber:uns32; itemPointer:dword); @forward;
+	procedure renderItem(itemPointer:dword); @forward;
 
-	procedure renderItems(listPointer:dword); @forward;
-
-//Money declarations
-
-	procedure currency_addCredit(currencyAmount:uns32); @forward;
-	procedure currency_subtractCredit(currencyAmount:uns32); @forward;
+	procedure renderItems(listPointer:dword; addNumbers:boolean); @forward;
 
 // -------------------------- Procedure Definitions ---------------------------
 
@@ -315,12 +311,12 @@ static
 			push(ecx);
 			push(edx);
 
+			//Clear EBX
+			mov(0, ebx);
+
 			//Get the length and push that to edx
 			list_getLength(listPointer);
 			mov(eax, edx);
-
-			//Move the first item pointer into eax
-			list_getFirstItem(listPointer);
 
 			//Looping like this is inefficient but this isn't needing to be
 			//performant
@@ -333,20 +329,12 @@ static
 
 				//Get the name
 				list_getItemName(eax);
-				stdout.put(nl, (type string eax), " =? ");
-				stdout.put(itemName);
-				str.eq((type string eax), itemName);
-				breakif(al = true);//FIX STRING COMPARISON
+				breakif(str.eq(eax, itemName));
+				mov(0, ebx);
 			endfor;
 
-			//If eax is 1 we got a match
-			if (al = 1) then
-				//Copy the last item we had focused to eax
-				mov(ebx, eax);
-			else
-				//Otherwise set it to null
-				mov(0, eax);
-			endif;
+			//If we had a match, move it to eax
+			mov(ebx, eax);
 
 			pop(edx);
 			pop(ecx);
@@ -436,6 +424,26 @@ static
 		end list_incrementItemQuantity;
 
 //Input definitions
+	procedure input_getYesNo(promptText:string);
+		begin input_getYesNo;
+			push(ebx);
+			forever
+				stdout.put(promptText);
+				stdout.put(" (y/n): ");
+				stdin.flushInput();
+				stdin.getc();
+				breakif(al = 'y' || al = 'n');
+				breakif(al = 'Y' || al = 'N');
+			endfor;
+			if (al = 'y' || al = 'Y') then
+				mov(true, al);
+			else
+				mov(false, al);
+			endif;
+
+			pop(ebx);
+		end input_getYesNo;
+
 	procedure input_getNumber(promptText:string);
 		//Destroys eax
 		begin input_getNumber;
@@ -486,28 +494,27 @@ static
 			stdout.put("------------------------------------------------", nl);
 		end renderLine;
 
-	procedure renderItem(itemNumber:uns32; itemPointer:dword);
+	procedure renderItem(itemPointer:dword);
 		begin renderItem;
 			push(eax);
 
-			mov(itemNumber, eax);
-			if (eax > 0) then
-				stdout.put((type uns32 eax), ". ");
-			endif;
-
 			list_getItemName(itemPointer);
-			stdout.put("Name: ", (type string eax), ", ");
+			stdout.put("Name: ", (type string eax), ", ", nl);
 
 			list_getItemPrice(itemPointer);
-			stdout.put("Price: ", (type uns32 eax), ", ");
+			stdout.put("    Price: ", (type uns32 eax), nl);
 
 			list_getItemQuantity(itemPointer);
-			stdout.put("Quantity: ", (type uns32 eax), " ", nl);
+			stdout.put("    Quantity: ", (type uns32 eax), nl);
+
+			if (eax < 1) then
+				stdout.put("    SOLD OUT", nl);
+			endif;
 
 			pop(eax);
 		end renderItem;
 
-	procedure renderItems(listPointer:dword);
+	procedure renderItems(listPointer:dword; addNumbers:boolean);
 		begin renderItems;
 			push(eax);
 			push(ebx);
@@ -522,7 +529,12 @@ static
 			for (mov(0, ecx); ecx < edx; inc(ecx)) do
 				//Get the list item at index of ecx
 				list_getItem(listPointer, ecx);
-				renderItem(0, eax);
+				if (addNumbers) then 
+					mov(ecx, ebx);
+					inc(ebx);
+					stdout.put((type uns32 ebx), ". ");
+				endif;
+				renderItem(eax);
 			endfor;
 
 			pop(edx);
@@ -530,16 +542,6 @@ static
 			pop(ebx);
 			pop(eax);
 		end renderItems;
-
-//Money definitions
-
-	procedure currency_addCredit(currencyAmount:uns32);
-		begin currency_addCredit;
-		end currency_addCredit;
-
-	procedure currency_subtractCredit(currencyAmount:uns32);
-		begin currency_subtractCredit;
-		end currency_subtractCredit;
 
 // -------------------------- Main Program Functions --------------------------
 
@@ -554,11 +556,180 @@ procedure vending_initialize;
 		mov(eax, receiptList);
 
 		//Populate the product list with presets
-		list_createItem(productList, "Coke", 199, 100);
+		list_createItem(productList, "Coke", 199, 0);
 		list_createItem(productList, "Diet Coke", 189, 100);
 		list_createItem(productList, "Sprite", 199, 100);
 		list_createItem(productList, "Dr. Pepper", 199, 100);
 	end vending_initialize;
+
+procedure vending_getProductSelection; @returns("eax");
+	begin vending_getProductSelection;
+		push(ebx);
+
+		renderClear();
+		renderLine();
+		renderItems(productList, true);
+		renderLine();
+
+		list_getLength(productList);
+
+		input_getNumberInRange("Purchase> ", 1, eax);
+
+		//First item is zero so subtract one from everything
+		dec(eax);
+
+		list_getItem(productList, eax);
+
+		mov(eax, ebx);
+
+		list_getItemQuantity(eax);
+
+		if (eax < 1) then
+			stdout.put("The item you have selected is sold out. Please pick a different item.", nl);
+			vending_getProductSelection();
+			//Call itself again
+		else
+			//Move the previous item into eax
+			mov(ebx, eax);
+		endif;
+
+		pop(ebx);
+	end vending_getProductSelection;
+
+procedure vending_getAndConfirmProductSelection; @returns("eax");
+	begin vending_getAndConfirmProductSelection;
+		push(ebx);
+		vending_getProductSelection();
+
+		renderClear();
+		renderLine();
+		stdout.put("You have selected the following item:", nl);
+		renderItem(eax);
+		renderLine();
+
+		mov(eax, ebx);
+
+		if (!input_getYesNo("Are you sure you would like to purchase this item?")) then
+			vending_getAndConfirmProductSelection();
+		else
+			mov(ebx, eax);
+		endif;
+
+		pop(ebx);
+	end vending_getAndConfirmProductSelection;
+
+procedure vending_outputChange(change:uns32);
+	begin vending_outputChange;
+		push(eax);
+		push(edx);
+		//Output the change, being the difference between the two
+		//in dollars, quarters, dimes, nickels, and pennies
+		stdout.put("Your change is:", nl);
+		
+
+		pop(edx);
+		pop(eax);
+	end vending_outputChange;
+
+procedure vending_takeMoney(price:uns32);
+	begin vending_takeMoney;
+		push(eax);
+		push(ebx);
+
+		//Because it could be anything, we explicitly set ebx,
+		//the user's credit count, to 0
+		mov(0, ebx);
+
+		stdout.put("The price is ", price, " and you have ", (type uns32 ebx), " credits.", nl);
+
+		forever
+			input_getNumber("Please enter your credits: ");
+			add(eax, ebx);
+
+			mov(ebx, eax);
+			breakif(eax > price || eax == price);
+			mov(price, eax);
+			sub(ebx, eax);
+			stdout.put("To purchase this item, you still need to enter at least ", (type uns32 eax), " credits.", nl);
+		endfor;
+
+		//ebx contains the user credit count
+		if (ebx == price) then
+			stdout.put("You have entered the exact amount required and have no change.", nl);
+		else
+			//We dump the change
+			vending_outputChange(ebx);
+		endif;
+
+		pop(ebx);
+		pop(eax);
+	end vending_takeMoney;
+
+procedure vending_purchaseItem(purchasedItem:dword);
+	static
+		//These are static and WILL be overwritten
+		recordName: string;
+		recordQuantity: uns32;
+		recordPrice: uns32;
+
+	begin vending_purchaseItem;
+		push(eax);
+		push(ebx);
+
+		list_getItemName(purchasedItem);
+		stdout.put("You have purchased a ", (type string eax), ". ", nl);
+
+		list_decrementItemQuantity(purchasedItem);
+
+		//Analytical tracking time
+
+		//Get and store the purchased item's info into the stack variables
+		//Get the name of the item
+		list_getItemName(purchasedItem);
+		mov(eax, recordName);
+		//And quantity
+		list_getItemQuantity(purchasedItem);
+		mov(eax, recordQuantity);
+		//And price
+		list_getItemPrice(purchasedItem);
+		mov(eax, recordPrice);
+
+		//Search for the purchased item in the list
+		list_getItemByName(receiptList, recordName);
+		//If it's null, make a blank entry but using the product name
+		if (eax == 0) then
+			list_createItem(receiptList, recordName, 0, 0);
+			//Make a new entry
+		endif;
+
+		//Save the new/existing entry pointer to ebx
+		mov(eax, ebx);
+
+		//Update quantity and price of the record
+		list_getItemQuantity(ebx);
+		add(1, eax);
+		list_setItemQuantity(ebx, eax);
+
+		list_getItemPrice(ebx);
+		add(recordPrice, eax);
+		list_setItemPrice(ebx, eax);
+
+		pop(ebx);
+		pop(eax);
+	end vending_purchaseItem;
+
+procedure vending_showReceipt;
+	begin vending_showReceipt;
+		renderClear();
+		renderLine();
+		stdout.put("Here is a receipt of all of the items you have purchased.", nl);
+		
+		renderItems(receiptList, false);
+
+		stdout.put("Have a good day!", nl);
+
+		renderLine();
+	end vending_showReceipt;
 
 procedure vending_destroy;
 	begin vending_destroy;
@@ -570,12 +741,13 @@ begin VendingMachine;
 	//Initialize the variables and lists
 	vending_initialize();
 
-	renderItems(productList);
+	//list_getItem(productList, 1);
+	//vending_purchaseItem(eax);
+	//vending_purchaseItem(eax);
+	//vending_purchaseItem(eax);
 
-	stdout.put(nl);
-
-	list_getItemByName(productList, "Sprite");
-	stdout.put(eax);
+	//vending_showReceipt();
+	vending_takeMoney(300);
 
 	//Free memory by destroying the variables and lists
 	vending_destroy();
